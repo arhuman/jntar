@@ -1,0 +1,31 @@
+{
+  "name": "jntar",
+  "version": "0.1.0",
+  "repository": "arhuman/jntar",
+  "description": "Jaguar Network (meta)tar archiver",
+  "main": "index.js",
+  "scripts": {
+    "test": "babel src -d lib; babel-tape-runner test/*.js"
+  },
+  "bin": {
+    "jntar": "lib/jntar_cli.js"
+  },
+  "keywords": [
+    "tar",
+    "meta-compression"
+  ],
+  "author": "Arnaud (Arhuman) ASSAD",
+  "license": "ISC",
+  "dependencies": {
+    "archiver": "^1.2.0", 
+    "commander": "*",
+    "extract-archive": "*",
+    "md5-file": "*"
+  },
+  "devDependencies": {
+    "babel-core": "*",
+    "babel-preset-es2015": "*",
+    "babel-tape-runner": "*",
+    "tape": "*"
+  }
+}

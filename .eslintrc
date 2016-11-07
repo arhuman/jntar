@@ -1,0 +1,11 @@
+{
+    "extends": "eslint-config-airbnb-base",
+    'rules': {
+                // It's a node app
+                "no-console": "off",         
+                // I like tu use tabular in vim
+                "no-multi-spaces": "off",  
+                // Allow some frown upon syntax
+                "no-restricted-syntax": "off",  
+            }
+}

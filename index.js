@@ -1,0 +1,223 @@
+#!/usr/bin/env node
+
+var fs                              = require('fs');
+var tingo                           = require('tingodb')();
+var archiver                        = require('archiver');
+var md5                             = require('md5-file');
+var program                         = require('commander');
+
+var dup_catalog                     = '.jagarchiver_dup_catalog';
+var src_dir                         = '/home/arnaud/www/';
+
+var min_meta_compress_size_treshold = 2048;
+
+program
+.command('c')
+.description('Create an archive')
+.action(function(archive, dir) {
+  console.log('compress ' + archive);
+  console.log(' dir   ' + dir);
+  compress(archive, dir);
+});
+
+program
+.command('x')
+.description('Decompress an archive')
+.action(function(archive) {
+  decompress(archive);
+});
+
+program
+.command('m')
+.description('Perform meta decompression')
+.action(function(dir) {
+  dir = normalize_dir(dir);
+  meta_decompress(dir, dup_catalog);
+});
+
+program.parse(process.argv);
+
+var archive_file = program.args.unshift();;
+var files = program.args;
+
+function compress(archive_file, dir) {
+  dir = normalize_dir(dir);
+  var output = fs.createWriteStream(archive_file);
+  var archive = archiver('tar', {
+    gzip: true,
+    gzipOptions: {
+      level: 1
+    }
+  });
+
+  output.on('close', function() {
+    console.log(archive.pointer() + ' total bytes');
+    console.log('archiver has been finalized and the output file descriptor has closed.');
+  });
+
+  archive.pipe(output);
+
+  var file_by_size = {};
+  var collisions = {};
+  var dirs = [];
+  var files = [];
+
+  // List all files in a directory in Node.js recursively in a synchronous fashion
+  function walkSync(dir) {
+    dirs.push(dir);
+    var dir_files = fs.readdirSync(dir);
+    dir_files.forEach(function(file) {
+      if (fs.statSync(dir + file).isDirectory()) {
+        walkSync(dir + file + '/');
+      } else {
+        var stats = fs.statSync(dir + file);
+        var size = stats.size;
+
+        files.push({ name: dir + file, size: size});
+        if (typeof file_by_size[ size ] == 'undefined') {
+          file_by_size[ size ] = [ dir + file ];
+        } else {
+          file_by_size[ size ].push(dir + file);
+        }
+      }
+    });
+  };
+
+  walkSync(dir);
+
+  for (var size in file_by_size) {
+    var list = file_by_size[ size ];
+    var file_by_hash = {};
+
+    // don't compute md5 if only one file of this side (no collision possible)
+    if (list.length == 1) {
+      file_by_size[ size ] = undefined;
+    }
+
+    list.forEach(function(name){
+      var md5sum = md5(name);
+
+      if (typeof file_by_hash[md5sum] != 'undefined') {
+        file_by_hash[md5sum].push(name);
+      } else {
+        file_by_hash[md5sum] = [name];
+      }
+    });
+
+    file_by_size[ size ] = file_by_hash;
+  }
+
+  var catalog_file = fs.createWriteStream(dup_catalog);
+
+  dirs.forEach(function(dir){
+    catalog_file.write('DIR' + '|' + dir + '|' + dir + '|' + 0 + "\n");
+  });
+
+  files.forEach(function(file_data){
+    var name = file_data.name;
+    var size = file_data.size;
+    var list = file_by_size[ size ];
+
+    if (typeof list == 'undefined') {
+      archive.file(name, {name: name})
+    }
+
+    var md5sum = md5(name);
+    if (typeof list[md5sum] != 'undefined' && list[md5sum].length > 1) {
+      console.log( 'list[md5sum[0]]=' + list[ md5sum ][0]);
+      if (list[ md5sum ][0] == name) {
+        console.log("Adding source of dulicates");
+        // First file with this md5 => add to archive
+        archive.file(name, {name: name})
+      } else {
+        // Collision => write to catalog
+        console.log("Duplicate detected");
+        catalog_file.write('DUP_FILE' + '|' + list[md5sum][0] + '|' + name + '|' + size + "\n");
+        // console.log('Collision of size ' + size + ' for ' + name + ' <=> ' + list[ md5sum ].join(', '));
+      }
+    } else {
+      archive.file(name, {name: name})
+    }
+  });
+
+  catalog_file.end();
+  archive.file(dup_catalog, {name: dup_catalog})
+  archive.finalize();
+};
+
+function decompress(archive_file) {
+  console.log('Uncompressing');
+  const extract = require('extract-archive');
+
+  extract(archive_file, './').then(function (dirPath) {
+    meta_decompress('./', dup_catalog);
+    // remove catalog_file
+    console.log('done');
+  });
+
+}
+
+function meta_decompress (dir, catalog_file) {
+  var array = fs.readFileSync( dir + catalog_file).toString().split("\n");
+  for(i in array) {
+    // array[i].slice(-1, '');
+    var file = array[i].split('|');
+    // Type of meta action to process
+    var type = file[0];
+    var src = normalize_path(dir + file[1]);
+    var dst = normalize_path(dir + file[2]);
+
+    if (type == 'DUP_FILE') {
+      try {
+        fs.accessSync(src, fs.F_OK);
+        copyFileSync(src, dst);
+        console.log('OK ' + src + '    =>    ' + dst);
+      } catch (e) {
+        console.log('!! ' + src + '    =>    ' + dst + '(' + e + ')');
+        // It isn't accessible
+      }
+    } else if (type == 'DIR') {
+      try {
+        fs.mkdirSync(src);
+        console.log('DIR ' + src + ' created');
+      } catch (e) {
+        if ( e.code != 'EEXIST' ) {
+          console.log('Dir error ' + e );
+        }
+      }
+    } else {
+      console.log('Unknown type of meta action (' + type + ')');
+    }
+  }
+}
+
+function normalize_dir (dir) {
+  var last = dir.slice(-1);
+  if (last != '/') {
+    return dir + '/';
+  }
+
+  return dir;
+}
+
+function normalize_path(path) {
+  var result = path.replace(/\/\//, '\/');
+  return result;
+}
+
+
+function copyFileSync (srcFile, destFile) {
+  const BUF_LENGTH = 64*1024;
+  var buff = new Buffer(BUF_LENGTH);
+  var fdr = fs.openSync(srcFile, 'r');
+  var fdw = fs.openSync(destFile, 'w');
+  bytesRead = 1;
+  pos = 0;
+  while (bytesRead > 0) {
+    bytesRead = fs.readSync(fdr, buff, 0, BUF_LENGTH, pos);
+    fs.writeSync(fdw,buff,0,bytesRead);
+    pos += bytesRead;
+  }
+  fs.closeSync(fdr);
+  fs.closeSync(fdw);
+}
