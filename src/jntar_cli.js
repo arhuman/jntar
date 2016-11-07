@@ -3,7 +3,8 @@
 import program from 'commander';
 import JnTar from '../lib/JnTar';
 
-var version = '0.0.9';
+// Get version from JnTar class ?
+var version = '0.1.0';
 
 program
 .command('c <archive_name> [target_dirs...]')
