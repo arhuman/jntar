@@ -68,6 +68,12 @@ The callback `cb` will be called when the decompression is done.
 
 ### FAQ
 
+    Q: Does it works ?
+    A: I archived a file tree (1.9G) with tar (czvf) and jntar look at the results
+        arnaud@vm03:~/jaguar_archiver_playground$ du -sh *
+        236M    jntar.tgz     <----------------  Seems it works !
+        406M    tar.tgz>
+
     Q: Why this name, jntar ?
     A: jntar stands for Jaguar Network TAR 
         (As I'm fortunate enough to work in a company (http://www.jaguar-network.com) which allows me to work on Open Source projects)
